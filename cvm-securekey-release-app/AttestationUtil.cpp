@@ -25,6 +25,9 @@
 #include "AttestationUtil.h"
 #include "Logger.h"
 #include "Constants.h"
+#ifdef AZURE_LOCAL
+#include <hw_evidence_api.h>
+#endif
 
 using namespace attest;
 using json = nlohmann::json;
@@ -697,6 +700,7 @@ bool Util::doSKR(const std::string &attestation_url,
         std::string attest_token(Util::GetMAAToken(attestation_url, nonce));
         TRACE_OUT("MAA Token: %s", Util::reduct_log(attest_token).c_str());
 
+#ifndef AZURE_LOCAL
         // Get Akv access token either using IMDS or Service Principal
         std::string access_token;
         if (akv_credential_source == Util::AkvCredentialSource::EnvServicePrincipal)
@@ -712,6 +716,36 @@ bool Util::doSKR(const std::string &attestation_url,
 
         std::string requestUri = Util::GetKeyVaultSKRurl(KEKUrl);
         std::string responseStr = Util::GetKeyVaultResponse(requestUri, access_token, attest_token, nonce);
+#else
+        // On Azure Local, the Evidence SDK handles AKV authentication and key release
+        // via the IGVM agent.
+        std::string nonce_token = nonce.empty() ? Constants::NONCE : nonce;
+
+        uint8_t* wrapped_key = nullptr;
+        uint32_t wrapped_key_size = 0;
+        std::string encryption_algorithm = "CKM_RSA_AES_KEY_WRAP";
+
+        hw_evidence_result skr_result = release_akv_key(
+            reinterpret_cast<uint8_t*>(const_cast<char*>(KEKUrl.c_str())),
+            static_cast<uint32_t>(KEKUrl.size()),
+            reinterpret_cast<uint8_t*>(const_cast<char*>(attest_token.c_str())),
+            static_cast<uint32_t>(attest_token.size()),
+            reinterpret_cast<uint8_t*>(const_cast<char*>(nonce_token.c_str())),
+            static_cast<uint32_t>(nonce_token.size()),
+            reinterpret_cast<uint8_t*>(const_cast<char*>(encryption_algorithm.c_str())),
+            static_cast<uint32_t>(encryption_algorithm.size()),
+            &wrapped_key,
+            &wrapped_key_size);
+
+        if (skr_result != HW_EVIDENCE_OK)
+        {
+            TRACE_ERROR_EXIT("release_akv_key() failed on Azure Local")
+        }
+
+        std::string responseStr(reinterpret_cast<char*>(wrapped_key), wrapped_key_size);
+        hw_evidence_free(wrapped_key);
+        TRACE_OUT("Azure Local SKR response: %s", Util::reduct_log(responseStr).c_str());
+#endif
 
         // Parse the response:
         json skrJson = json::parse(responseStr.c_str());

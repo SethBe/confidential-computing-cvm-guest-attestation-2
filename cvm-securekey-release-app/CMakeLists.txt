@@ -13,6 +13,13 @@ endif()
 
 add_definitions (-DPLATFORM_UNIX)
 
+if(AZURE_LOCAL)
+    add_compile_definitions(AZURE_LOCAL)
+    message(STATUS "Azure Local mode: ENABLED")
+else()
+    message(STATUS "Azure Local mode: DISABLED")
+endif()
+
 include_directories(
      /usr/include/azguestattestation1
      /usr/include/jsoncpp
@@ -30,3 +37,7 @@ add_executable(${CMAKE_PROJECT_TARGET}
 )
 
 target_link_libraries(${CMAKE_PROJECT_TARGET} azguestattestation curl jsoncpp crypto)
+
+if(AZURE_LOCAL)
+    target_link_libraries(${CMAKE_PROJECT_TARGET} edge-cc-base-attestation-sdk)
+endif()
