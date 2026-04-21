@@ -26,6 +26,22 @@ Use the below command to install the attestation package
 $ wget https://packages.microsoft.com/repos/azurecore/pool/main/a/azguestattestation1/azguestattestation1_1.1.2_amd64.deb
 $ sudo dpkg -i azguestattestation1_1.1.2_amd64.deb
 ```
+
+Once the above packages have been installed, use below steps to build and run the app
+
+```sh
+$ git clone --recursive https://github.com/Azure/confidential-computing-cvm-guest-attestation
+$ cd confidential-computing-cvm-guest-attestation
+$ cd cvm-securekey-release-app/
+$ mkdir build && cd build
+$ cmake .. -DCMAKE_BUILD_TYPE=Release  # Debug for more tracing output and define TRACE constant in CMakeLists.txt
+$ make
+```
+
+## Build Instructions for Azure Local
+
+On Azure Local, the Evidence SDK (`edge-cc-base-attestation-sdk`) handles AKV authentication and key release via the IGVM agent, so IMDS/Service Principal credentials are not required.
+
 Note for Azure Local the attestation package must be built from source with Azure Local support enabled.
 Use the following script from the repo root to build and install:
 
@@ -36,14 +52,12 @@ $ sudo ./ClientLibBuildAndInstallAzureLocal.sh -p  # -p to install pre-requisite
 
 See client-library/src/Readme.md for more details.
 
-Once the above packages have been installed, use below steps to build and run the app
+Once the prerequisites have been installed, build with the `AZURE_LOCAL` CMake option enabled:
 
 ```sh
-$ git clone --recursive https://github.com/Azure/confidential-computing-cvm-guest-attestation
-$ cd confidential-computing-cvm-guest-attestation
 $ cd cvm-securekey-release-app/
 $ mkdir build && cd build
-$ cmake .. -DCMAKE_BUILD_TYPE=Release  # Debug for more tracing output and define TRACE constant in CMakeLists.txt
+$ cmake .. -DCMAKE_BUILD_TYPE=Release -DAZURE_LOCAL=ON
 $ make
 ```
 
