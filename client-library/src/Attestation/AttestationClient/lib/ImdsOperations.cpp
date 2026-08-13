@@ -24,13 +24,6 @@
 #include "HttpClient.h"
 #include "AttestationLibTelemetry.h"
 
-//azure local
-#ifdef AZURE_LOCAL
-#include <hw_evidence_manager.h>
-#endif
-
-#ifndef AZURE_LOCAL
-
 // IMDS endpoint for getting the VCek certificate
 constexpr char imds_endpoint[] = "http://169.254.169.254/metadata";
 constexpr char vcek_cert_path[] = "/THIM/amd/certification";
@@ -78,53 +71,3 @@ attest::AttestationResult ImdsOperations::GetVCekCert(std::string& vcek_cert) {
 
     return result;
 }
-
-#else // AZURE_LOCAL
-
-// Note: This Azure Local GetVCekCert implementation is no longer called.
-// Evidence gathering (including endorsements) is now handled directly
-// in AttestationClientImpl::GetIsolationInfo via the evidence SDK.
-attest::AttestationResult ImdsOperations::GetVCekCert(std::string& vcek_cert) {
-    AttestationResult result(AttestationResult::ErrorCode::SUCCESS);
-
-    uint32_t endorsements_size = 0;
-    endorsement_options options{ false };
-    hw_evidence_result get_endorsements_result = get_endorsements(options, nullptr, &endorsements_size);
-
-    if (hw_evidence_result_failed(get_endorsements_result))
-    {
-        if (get_endorsements_result == HW_EVIDENCE_ERROR_NOT_SUPPORTED && get_hardware_capabilities() == CONFIDENTIAL_COMPUTE_TDX)
-        {
-            CLIENT_LOG_ERROR("TDX hardware does not support VCEK");
-            result.code_ = AttestationResult::ErrorCode::ERROR_EMPTY_VCEK_CERT;
-            result.description_ = std::string("Incompatable hardware does not support VCEK");
-            return result;
-
-        }
-        else
-        {
-            CLIENT_LOG_ERROR("Failed to get endorsements size");
-            result.code_ = AttestationResult::ErrorCode::ERROR_EMPTY_RESPONSE; //Bugbug discuss better errors
-            result.description_ = std::string("get_endorsements_result failed: " + std::to_string(static_cast<int>(get_endorsements_result)));
-            return  result;
-        }
-    }
-
-    std::vector<uint8_t> endorsements(endorsements_size);
-    get_endorsements_result = get_endorsements(options, endorsements.data(), &endorsements_size);
-
-    if (hw_evidence_result_failed(get_endorsements_result))
-    {
-        CLIENT_LOG_ERROR("Failed to get endorsements size");
-        result.code_ = AttestationResult::ErrorCode::ERROR_EMPTY_RESPONSE; //Bugbug discuss better errors
-        result.description_ = std::string("get_endorsements_result failed: " + std::to_string(static_cast<int>(get_endorsements_result)));
-        return  result;
-    }
-
-
-    vcek_cert = attest::base64::binary_to_base64(endorsements);
-
-    return result;
-}
-
-#endif // AZURE_LOCAL

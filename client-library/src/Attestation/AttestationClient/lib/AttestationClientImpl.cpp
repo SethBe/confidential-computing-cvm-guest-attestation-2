@@ -38,9 +38,7 @@
 #include "HclReportParser.h"
 #include "TpmCertOperations.h"
 
-#ifdef AZURE_LOCAL
 #include <hw_evidence_manager.h>
-#endif
 
 #define MAX_ATTESTATION_RETRIES 3
 
@@ -80,8 +78,6 @@ AttestationResult AttestationClientImpl::Attest(const ClientParameters& client_p
 
     AttestationResult result(AttestationResult::ErrorCode::SUCCESS);
 
-#ifndef AZURE_LOCAL //Ak cert uses HCL and IGVMAgent in Azure local to renew the AkCert. Not IMDS. AKCert is only TVM level trusted in both CVM and TVM for Azure and Azure local respectively.
-
     // Validate the token to make sure that the input parameter is not empty.
     // Check the Version of the structure.
     if (client_params.version != CLIENT_PARAMS_VERSION ||
@@ -93,32 +89,33 @@ AttestationResult AttestationClientImpl::Attest(const ClientParameters& client_p
         return result;
     }
 
-    TpmCertOperations tpm_cert_ops;
-    bool is_ak_cert_renewal_required = false;
-    if ((result = tpm_cert_ops.IsAkCertRenewalRequired(is_ak_cert_renewal_required)).code_ != AttestationResult::ErrorCode::SUCCESS) {
-        CLIENT_LOG_ERROR("Failure while checking AkCert Renewal state %s", result.description_.c_str());
-        if (result.tpm_error_code_ != 0) {
-            CLIENT_LOG_ERROR("Internal TPM Error occurred, Tpm Error Code: %d", result.tpm_error_code_);
-            return result;
-        } else if (result.code_ == attest::AttestationResult::ErrorCode::ERROR_AK_CERT_PROVISIONING_FAILED) {
-            CLIENT_LOG_ERROR("Attestation Key cert provisioning delayed. Please try attestation after some time.");
-            result.description_ = std::string("AK cert provisioning delayed. Please try attestation after some time.");
-            return result;
+    if (imds_client_.GetAttestationEnvironment() == AttestationEnvironment::Azure) {
+        TpmCertOperations tpm_cert_ops;
+        bool is_ak_cert_renewal_required = false;
+        if ((result = tpm_cert_ops.IsAkCertRenewalRequired(is_ak_cert_renewal_required)).code_ != AttestationResult::ErrorCode::SUCCESS) {
+            CLIENT_LOG_ERROR("Failure while checking AkCert Renewal state %s", result.description_.c_str());
+            if (result.tpm_error_code_ != 0) {
+                CLIENT_LOG_ERROR("Internal TPM Error occurred, Tpm Error Code: %d", result.tpm_error_code_);
+                return result;
+            } else if (result.code_ == attest::AttestationResult::ErrorCode::ERROR_AK_CERT_PROVISIONING_FAILED) {
+                CLIENT_LOG_ERROR("Attestation Key cert provisioning delayed. Please try attestation after some time.");
+                result.description_ = std::string("AK cert provisioning delayed. Please try attestation after some time.");
+                return result;
+            }
         }
-    }
 
-    result = AttestationResult::ErrorCode::SUCCESS;
-    if (is_ak_cert_renewal_required) {
-        if ((result = tpm_cert_ops.RenewAndReplaceAkCert()).code_ != AttestationResult::ErrorCode::SUCCESS) {
-            CLIENT_LOG_ERROR("Failed to renew AkCert, description: %s with error code: %d", result.description_, static_cast<int>(result.code_));
-            if (telemetry_reporting.get() != nullptr) {
-                telemetry_reporting->UpdateEvent("AkRenew", 
-                                                "Failed to renew AkCert, error description: " + result.description_, 
-                                                TelemetryReportingBase::EventLevel::AK_RENEW_UNEXPECTED_ERROR);
+        result = AttestationResult::ErrorCode::SUCCESS;
+        if (is_ak_cert_renewal_required) {
+            if ((result = tpm_cert_ops.RenewAndReplaceAkCert()).code_ != AttestationResult::ErrorCode::SUCCESS) {
+                CLIENT_LOG_ERROR("Failed to renew AkCert, description: %s with error code: %d", result.description_, static_cast<int>(result.code_));
+                if (telemetry_reporting.get() != nullptr) {
+                    telemetry_reporting->UpdateEvent("AkRenew",
+                                                    "Failed to renew AkCert, error description: " + result.description_,
+                                                    TelemetryReportingBase::EventLevel::AK_RENEW_UNEXPECTED_ERROR);
+                }
             }
         }
     }
-#endif
 
     result = AttestationResult::ErrorCode::SUCCESS;
 
@@ -296,7 +293,8 @@ AttestationResult AttestationClientImpl::Decrypt(const attest::EncryptionType en
     }
     try {
         Tpm tpm;
-        PcrList list = GetAttestationPcrList();
+        bool is_azure_local = imds_client_.GetAttestationEnvironment() != AttestationEnvironment::Azure;
+        PcrList list = GetAttestationPcrList(is_azure_local);
         PcrSet pcrValues = tpm.GetPCRValues(list, attestation_hash_alg);
 
         // For encryption type 'NONE', the encrypted data is expected to be the encrypted symmetric key
@@ -401,9 +399,11 @@ AttestationResult AttestationClientImpl::DecryptMaaToken(const std::string& jwt_
     }
 
     attest::Buffer decrypted_key;
+    bool is_azure_local = imds_client_.GetAttestationEnvironment() != AttestationEnvironment::Azure;
     // MAA uses RSA-ES with SHA256 as the encryption algorithm.
     if((result = DecryptInnerKey(encrypted_inner_key,
                                  decrypted_key,
+                                 is_azure_local,
                                  attest::RsaScheme::RsaEs,
                                  attest::RsaHashAlg::RsaSha256)).code_ !=
                                                             AttestationResult::ErrorCode::SUCCESS) {
@@ -590,7 +590,8 @@ AttestationResult AttestationClientImpl::GetTpmInfo(TpmInfo& tpm_info) {
 
         Buffer aik_pub = tpm.GetAIKPub();
 
-        attest::PcrList pcrs = GetAttestationPcrList();
+        bool is_azure_local = imds_client_.GetAttestationEnvironment() != AttestationEnvironment::Azure;
+        attest::PcrList pcrs = GetAttestationPcrList(is_azure_local);
 
         // Unpack the PCR quote to get the raw quote and arrange the quote
         // signature in a format expected by AAS.
@@ -709,8 +710,7 @@ AttestationResult AttestationClientImpl::GetOSInfo(OsInfo& os_info) {
     return result;
 }
 
-#ifndef AZURE_LOCAL
-AttestationResult AttestationClientImpl::GetIsolationInfo(IsolationInfo& isolation_info) {
+static AttestationResult GetAzureIsolationInfo(IsolationInfo& isolation_info) {
     CLIENT_LOG_INFO("Retrieving Isolation Info");
     isolation_info = IsolationInfo();
     AttestationResult result(AttestationResult::ErrorCode::SUCCESS);
@@ -756,14 +756,13 @@ AttestationResult AttestationClientImpl::GetIsolationInfo(IsolationInfo& isolati
     }
     return result;
 }
-#else // AZURE_LOCAL
-AttestationResult AttestationClientImpl::GetIsolationInfo(IsolationInfo& isolation_info) {
+
+static AttestationResult GetAzureLocalIsolationInfo(IsolationInfo& isolation_info) {
     CLIENT_LOG_INFO("Retrieving Isolation Info");
     isolation_info = IsolationInfo();
     AttestationResult result(AttestationResult::ErrorCode::SUCCESS);
     std::string isolation_info_str = std::string();
 
-    CLIENT_LOG_INFO("AZURE_LOCAL path active");
     // Check hardware capabilities to determine if this is a CVM or TVM.
     uint32_t hw_capabilities = get_hardware_capabilities();
     CLIENT_LOG_INFO("get_hardware_capabilities() returned 0x%x (SNP=0x%x, TDX=0x%x, INCAPABLE=0x%x)",
@@ -869,7 +868,17 @@ AttestationResult AttestationClientImpl::GetIsolationInfo(IsolationInfo& isolati
 
     return result;
 }
-#endif // AZURE_LOCAL
+
+AttestationResult AttestationClientImpl::GetIsolationInfo(IsolationInfo& isolation_info) {
+    AttestationEnvironment environment = imds_client_.GetAttestationEnvironment();
+    if (environment == AttestationEnvironment::Azure) {
+        CLIENT_LOG_INFO("Using Azure isolation evidence path");
+        return GetAzureIsolationInfo(isolation_info);
+    }
+
+    CLIENT_LOG_INFO("Using Azure Local isolation evidence path");
+    return GetAzureLocalIsolationInfo(isolation_info);
+}
 
 AttestationResult AttestationClientImpl::CreatePayload(const AttestationParameters& params,
                                                        std::string& payload) {
@@ -939,4 +948,3 @@ AttestationResult AttestationClientImpl::ParseMaaResponse(const std::string& maa
     token = parsed_token;
     return result;
 }
-

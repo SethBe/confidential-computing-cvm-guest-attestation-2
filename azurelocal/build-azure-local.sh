@@ -44,7 +44,7 @@ if [ "$CLEAN_BUILD" = true ]; then
     # Rebuild attestation library for Azure Local
     echo "Rebuilding attestation library (Azure Local)..."
     pushd "${SCRIPT_DIR}/cvm-attestation-sample-app" > /dev/null
-    sudo ./ClientLibBuildAndInstallAzureLocal.sh ${CLIENT_LIB_FLAGS}
+    sudo ./ClientLibBuildAndInstall.sh ${CLIENT_LIB_FLAGS}  #Note this is only needed until evidence SDK is generally available.
     popd > /dev/null
 
     # Clean and rebuild AttestationClient

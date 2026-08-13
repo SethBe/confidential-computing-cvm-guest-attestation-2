@@ -18,10 +18,7 @@ while getopts ":hdl" opt; do
         CMAKE_BUILDTYPE_OPT="${CMAKE_BUILDTYPE_OPT} -DCMAKE_BUILD_TYPE=Debug"
         echo "Build Type = Debug"
       ;;
-      l )
-        CMAKE_BUILDTYPE_OPT="${CMAKE_BUILDTYPE_OPT} -DAZURE_LOCAL=ON"
-        echo "Azure Local = ON"
-      ;;
+
     \? )
         Usage
       ;;

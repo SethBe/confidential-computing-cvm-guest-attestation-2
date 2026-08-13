@@ -7,7 +7,7 @@ Standards-Version: 3.9.6
 
 Package: azguestattestation1
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: edge-cc-base-attestation-sdk, ${shlibs:Depends}, ${misc:Depends}
 Description: Azure Guest Attestation Library
  The guest attestation library can be used to 
  perform attestation on Trusted Launch and 

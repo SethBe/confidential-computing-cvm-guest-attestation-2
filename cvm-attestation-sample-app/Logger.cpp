@@ -22,6 +22,5 @@ void Logger::Log(const char* log_tag,
     std::vsnprintf(&str[0], len + 1, fmt, args);
     va_end(args);
 
-    // uncomment the below statement and rebuild if details debug logs are needed
-    // printf("Level: %s Tag: %s %s:%d:%s\n", attest::AttestationLogger::LogLevelStrings[level].c_str(), log_tag, function, line, &str[0]);
+    printf("Level: %s Tag: %s %s:%d:%s\n", attest::AttestationLogger::LogLevelStrings[level].c_str(), log_tag, function, line, &str[0]);
 }

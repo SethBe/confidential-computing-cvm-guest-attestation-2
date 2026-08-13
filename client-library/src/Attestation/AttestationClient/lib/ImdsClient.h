@@ -13,6 +13,7 @@
 #include <math.h>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <unordered_map>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -24,6 +25,14 @@
 #include <openssl/x509v3.h>
 #include "AttestationLibUtils.h"
 #include "TelemetryReportingBase.h"
+
+namespace attest {
+    enum class AttestationEnvironment {
+        Azure,
+        AzureLocal,
+        NonAzure
+    };
+}
 
 class ImdsClient {
 public:
@@ -37,6 +46,18 @@ public:
      * @return On success, vm_id is returned. On failure, empty string is returned. 
      */
     std::string GetVmId();
+
+    /**
+     * @brief Retrieves Azure instance metadata.
+     * @return Instance metadata on success; otherwise an empty string.
+     */
+    std::string GetInstanceMetadata();
+
+    /**
+     * @brief Determines and caches the runtime attestation environment.
+     * @return The detected Azure, Azure Local, or non-Azure environment.
+     */
+    attest::AttestationEnvironment GetAttestationEnvironment();
 
     /**
      * @brief This function will be used to send a renew AK cert request to OneCert via THIM agent
@@ -72,6 +93,12 @@ private:
     std::string GetVmIdQueryEndpoint();
 
     /**
+     * @brief This function will be used to get the instance metadata query URL.
+     * @return Instance metadata query URL for the selected environment.
+     */
+    std::string GetInstanceMetadataQueryEndpoint();
+
+    /**
      * @brief This function will be used to get the THIM AK Renew URL
      * @param[in] vm_id, the VM Id guid
      * @param[in] request_id, the request id guid
@@ -96,7 +123,11 @@ private:
      * @param[in] request_body, the request body. This is expected for any POST calls.
      * @return On success, string response is returned. On Failure, empty string is returned.
      */
-    std::string InvokeHttpRequest(const std::string& url, const ImdsClient::HttpVerb& http_verb, const std::string& request_body = std::string());
+    std::string InvokeHttpRequest(
+        const std::string& url,
+        const ImdsClient::HttpVerb& http_verb,
+        const std::string& request_body = std::string(),
+        uint8_t max_retries = 3);
     
     /**
      * @brief This function will be used to URL encode the data
@@ -109,4 +140,13 @@ private:
      * @brief CURL Callback to write response to a user specified pointer
     */
     static size_t WriteResponseCallback(void* contents, size_t size, size_t nmemb, void* response);
+
+    /**
+     * @brief Determines and caches the attestation environment.
+     */
+    void DetermineEnvironment();
+
+    std::once_flag determine_environment_once_;
+    attest::AttestationEnvironment attestation_environment_ = attest::AttestationEnvironment::NonAzure;
+    std::string instance_metadata_;
 };

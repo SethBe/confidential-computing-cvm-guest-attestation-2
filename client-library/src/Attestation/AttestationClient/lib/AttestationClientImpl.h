@@ -13,6 +13,7 @@
 #include "AttestationClient.h"
 #include "IsolationInfo.h"
 #include "AttestationLibTelemetry.h"
+#include "ImdsClient.h"
 
 class AttestationClientImpl : public AttestationClient {
 public:
@@ -259,5 +260,6 @@ private:
     attest::AttestationResult sendHttpRequest(const std::string& payload,
                                               std::string& response);  
 
+    ImdsClient imds_client_;
     std::string attestation_url_;
 };

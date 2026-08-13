@@ -22,6 +22,7 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <regex>
+#include <hw_evidence_manager.h>
 #include "AttestationLibTelemetry.h"
 
 #define HTTP_STATUS_OK 200
@@ -30,8 +31,10 @@
 #define HTTP_STATUS_TOO_MANY_REQUESTS 429
 #define HTTP_STATUS_INTERNAL_SERVER_ERROR 500
 #define MAX_RETRIES 3
+#define IMDS_ENVIRONMENT_MAX_RETRIES 5
 
 constexpr char imds_endpoint[] = "http://169.254.169.254/metadata";
+constexpr char azure_local_imds_endpoint[] = "http://localhost:40342/metadata";
 constexpr char api_version_param[] = "api-version=";
 constexpr char vm_id_param[] = "vmId=";
 constexpr char request_id_param[] = "requestId=";
@@ -119,12 +122,103 @@ std::string ImdsClient::GetVmIdQueryEndpoint() {
 	return url;
 }
 
+std::string ImdsClient::GetInstanceMetadataQueryEndpoint() {
+	constexpr char instance_metadata_query_path[] = "/instance/compute";
+	switch (attestation_environment_) {
+		case attest::AttestationEnvironment::Azure: {
+			constexpr char api_version[] = "2021-02-01";
+			constexpr char format_type[] = "format=json";
+			return std::string(imds_endpoint) +
+				std::string(instance_metadata_query_path) +
+				std::string("?") +
+				std::string(api_version_param) +
+				std::string(api_version) +
+				std::string("&") +
+				std::string(format_type);
+		}
+		case attest::AttestationEnvironment::AzureLocal: {
+			constexpr char api_version[] = "2020-06-01";
+			return std::string(azure_local_imds_endpoint) +
+				std::string(instance_metadata_query_path) +
+				std::string("?") +
+				std::string(api_version_param) +
+				std::string(api_version);
+		}
+		default:
+			CLIENT_LOG_INFO("No known IMDS endpoint for the selected attestation environment");
+			return std::string();
+	}
+}
+
 std::string ImdsClient::GetVmId() {
 	std::string url = GetVmIdQueryEndpoint();
 	std::string vm_id = InvokeHttpRequest(url,
 		ImdsClient::HttpVerb::GET);
 
 	return vm_id;
+}
+
+std::string ImdsClient::GetInstanceMetadata() {
+	if (!instance_metadata_.empty()) {
+		return instance_metadata_;
+	}
+
+	std::string url = GetInstanceMetadataQueryEndpoint();
+	if (url.empty()) {
+		return std::string();
+	}
+
+	instance_metadata_ = InvokeHttpRequest(
+		url,
+		ImdsClient::HttpVerb::GET,
+		std::string(),
+		0);
+	return instance_metadata_;
+}
+
+attest::AttestationEnvironment ImdsClient::GetAttestationEnvironment() {
+	std::call_once(determine_environment_once_, &ImdsClient::DetermineEnvironment, this);
+	return attestation_environment_;
+}
+
+void ImdsClient::DetermineEnvironment() {
+	for (uint8_t retries = 0; retries <= IMDS_ENVIRONMENT_MAX_RETRIES; retries++) {
+		attestation_environment_ = attest::AttestationEnvironment::Azure;
+		if (!GetInstanceMetadata().empty()) {
+			CLIENT_LOG_INFO("Attestation environment is Azure; detected through Azure IMDS");
+			return;
+		}
+
+		attestation_environment_ = attest::AttestationEnvironment::AzureLocal;
+		if (!GetInstanceMetadata().empty()) {
+			CLIENT_LOG_INFO("Attestation environment is Azure Local; detected through Azure Local IMDS");
+			return;
+		}
+
+		uint32_t attest_uri_size = 0;
+		hw_evidence_result evidence_result = get_attest_uri(nullptr, &attest_uri_size);
+		if (evidence_result == HW_EVIDENCE_OK) {
+			CLIENT_LOG_INFO("Attestation environment is Azure Local; detected through Evidence SDK attest URI");
+			return;
+		}
+
+		if (evidence_result == HW_EVIDENCE_ERROR_IGVM_ATTEST_URI_NOT_CONFIGURED) {
+			CLIENT_LOG_INFO("Attestation environment is Azure Local; Evidence SDK reports attest URI is not configured");
+			return;
+		}
+
+		CLIENT_LOG_INFO("Evidence SDK Azure Local probe failed with error: 0x%x",
+			static_cast<unsigned int>(evidence_result));
+
+		if (retries < IMDS_ENVIRONMENT_MAX_RETRIES) {
+			std::this_thread::sleep_for(
+				std::chrono::seconds(
+					static_cast<long long>(5 * pow(2.0, static_cast<double>(retries)))));
+		}
+	}
+
+	attestation_environment_ = attest::AttestationEnvironment::NonAzure;
+	CLIENT_LOG_INFO("Attestation environment is non-Azure; Azure IMDS, Azure Local IMDS, and Evidence SDK probes failed");
 }
 
 std::string ImdsClient::RenewAkCert(
@@ -189,7 +283,8 @@ std::string ImdsClient::QueryAkCert(
 std::string ImdsClient::InvokeHttpRequest(
 	const std::string& url,  
 	const ImdsClient::HttpVerb& http_verb,
-	const std::string& request_body) {
+	const std::string& request_body,
+	uint8_t max_retries) {
 	std::string http_response;
 	if (url.empty()) {
 		CLIENT_LOG_ERROR("The URL can not be empty");
@@ -255,7 +350,7 @@ std::string ImdsClient::InvokeHttpRequest(
 			//If we receive any of these responses from IMDS, we can retry
 			//after an exponential backoff time
 			// Sleep for the backoff period and try again
-			if (retries == MAX_RETRIES) {
+			if (retries == max_retries) {
 				CLIENT_LOG_ERROR("HTTP request failed. Maximum retries exceeded\n");
 
 				break;
