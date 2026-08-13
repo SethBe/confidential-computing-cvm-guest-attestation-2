@@ -84,6 +84,7 @@ bool GetEncryptedJwt(const Json::Value& json_obj,
  */
 attest::AttestationResult DecryptInnerKey(const attest::Buffer& encrypted_inner_key,
                                           attest::Buffer& decrypted_key,
+                                          bool is_azure_local,
                                           const attest::RsaScheme rsaWrapAlgId = attest::RsaScheme::RsaEs,
                                           const attest::RsaHashAlg rsaHashAlgId = attest::RsaHashAlg::RsaSha1);
 

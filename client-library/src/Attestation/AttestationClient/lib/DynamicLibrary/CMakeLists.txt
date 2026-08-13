@@ -58,10 +58,7 @@ find_library(CURL_LIB NAMES curl PATHS /usr/local/attestationcurl/lib
 
 target_link_libraries(${CMAKE_PROJECT_TARGET} Tpm2)
 target_link_libraries(${CMAKE_PROJECT_TARGET} ${CURL_LIB})
-
-if(AZURE_LOCAL)
-    target_link_libraries(${CMAKE_PROJECT_TARGET} edge-cc-base-attestation-sdk)
-endif()
+target_link_libraries(${CMAKE_PROJECT_TARGET} edge-cc-base-attestation-sdk)
 
 set_target_properties(${CMAKE_PROJECT_TARGET} PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(${CMAKE_PROJECT_TARGET} PROPERTIES SOVERSION 1)

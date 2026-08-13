@@ -132,6 +132,7 @@ bool attest::GetEncryptedJwt(const Json::Value& json_obj,
 
 attest::AttestationResult attest::DecryptInnerKey(const attest::Buffer& encrypted_inner_key,
                                                   attest::Buffer& decrypted_key,
+                                                  bool is_azure_local,
                                                   const attest::RsaScheme rsaWrapAlgId,
                                                   const attest::RsaHashAlg rsaHashAlgId) {
     AttestationResult result(AttestationResult::ErrorCode::SUCCESS);
@@ -140,7 +141,7 @@ attest::AttestationResult attest::DecryptInnerKey(const attest::Buffer& encrypte
 
         Tpm tpm;
 
-        attest::PcrList list = GetAttestationPcrList();
+        attest::PcrList list = GetAttestationPcrList(is_azure_local);
 
         attest::PcrSet pcrValues = tpm.GetPCRValues(list, attestation_hash_alg);
 

@@ -63,15 +63,16 @@ static inline AttestationResult LogErrorAndGetResult(const AttestationResult::Er
 
 namespace attest {
 
-PcrList GetAttestationPcrList() {
+PcrList GetAttestationPcrList(bool is_azure_local) {
     #ifdef PLATFORM_UNIX
-        #ifdef AZURE_LOCAL
+        attest::PcrList list;
+        if (is_azure_local) {
             // Include PCR 11 for Azure Local, note that if the system is incorrectly configured
             // PCR 11 will fail to attest. However, Azure Local gives strict guidence in image generation to avoid issues.
-            attest::PcrList list{0, 1, 2, 3, 4, 5, 6, 7, 11};
-        #else
-            attest::PcrList list{0, 1, 2, 3, 4, 5, 6, 7};
-        #endif
+            list = {0, 1, 2, 3, 4, 5, 6, 7, 11};
+        } else {
+            list = {0, 1, 2, 3, 4, 5, 6, 7};
+        }
 
     #else
         attest::PcrList list{0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14};

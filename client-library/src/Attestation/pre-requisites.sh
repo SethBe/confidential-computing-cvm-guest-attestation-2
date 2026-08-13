@@ -36,7 +36,9 @@ sudo apt-get install -y --fix-missing \
     libarchive-dev \
     libboost-dev \
     libcurl4-openssl-dev \
-    nlohmann-json3-dev
+    nlohmann-json3-dev \
+    libtss2-dev \
+    edge-cc-base-attestation-sdk
 
 # Needed to sudo the Attestation extension tests.
 sudo pip3 install mock
