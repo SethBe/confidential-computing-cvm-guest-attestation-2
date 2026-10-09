@@ -36,7 +36,7 @@ echo "=== Running standard pre-requisites ==="
 echo "=== Installing libtss2-dev ==="
 sudo apt-get install -y libtss2-dev
 
-# Configure and validate the selected PMC feed, including on previously configured hosts.
+# Configure the selected PMC feed if it is not already present.
 if [ "$USE_INSIDERS_FAST" = true ]; then
     sudo bash "${CURRENT_DIR}/enable-pmc-repo.sh" -i
 else

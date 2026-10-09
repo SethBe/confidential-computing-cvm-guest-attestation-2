@@ -23,6 +23,7 @@ if [ "$#" -ne 0 ]; then
 fi
 
 # Verify the SHA256 checksum of a downloaded file.
+# Usage: verify_sha256 <file> <expected_hash>
 verify_sha256() {
     local file="$1"
     local expected_hash="$2"
@@ -33,6 +34,13 @@ verify_sha256() {
         return 1
     fi
 }
+
+# Add the selected packages.microsoft.com feed only if it is not configured.
+SOURCE_LIST="/etc/apt/sources.list.d/microsoft-${FEED}.list"
+if [ -e "$SOURCE_LIST" ]; then
+    echo "${FEED} repo already configured."
+    exit 0
+fi
 
 # Detect Ubuntu version to pick the matching PMC config.
 . /etc/os-release
@@ -61,7 +69,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 # SHA256 computed from: https://packages.microsoft.com/config/ubuntu/<version>/<feed>.list
 # No published manifest for config files — to update, wget the URL and run `sha256sum`.
-# Always validate the feed, even if a source list already exists locally.
+# Validate the downloaded feed before installing it.
 wget -q "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/${FEED}.list" \
     -O "$TMPDIR/${FEED}.list"
 verify_sha256 "$TMPDIR/${FEED}.list" "$LIST_SHA256"
@@ -69,19 +77,22 @@ verify_sha256 "$TMPDIR/${FEED}.list" "$LIST_SHA256"
 # Setup PMC GPG keys.
 # SHA256 hashes published by Microsoft at: https://packages.microsoft.com/keys/FILE_MANIFEST
 # To update: check FILE_MANIFEST for current hashes, or wget the keys and run `sha256sum`.
+
+# Legacy key (pre-Spring 2025 repos)
 wget -q https://packages.microsoft.com/keys/microsoft.asc -O "$TMPDIR/microsoft.asc"
 verify_sha256 "$TMPDIR/microsoft.asc" \
     "2fa9c05d591a1582a9aba276272478c262e95ad00acf60eaee1644d93941e3c6"
-wget -q https://packages.microsoft.com/keys/microsoft-2025.asc -O "$TMPDIR/microsoft-2025.asc"
-verify_sha256 "$TMPDIR/microsoft-2025.asc" \
-    "d45224d594d969f084232deaaf97c58ca502a9d964c362d7aaef5a76e16b3dd1"
-
 gpg --dearmor "$TMPDIR/microsoft.asc"
 cp "$TMPDIR/microsoft.asc.gpg" /etc/apt/trusted.gpg.d/
 cp "$TMPDIR/microsoft.asc.gpg" /usr/share/keyrings/microsoft-prod.gpg
+
+# Current key (Spring 2025+ repos)
+wget -q https://packages.microsoft.com/keys/microsoft-2025.asc -O "$TMPDIR/microsoft-2025.asc"
+verify_sha256 "$TMPDIR/microsoft-2025.asc" \
+    "d45224d594d969f084232deaaf97c58ca502a9d964c362d7aaef5a76e16b3dd1"
 gpg --dearmor "$TMPDIR/microsoft-2025.asc"
 cp "$TMPDIR/microsoft-2025.asc.gpg" /etc/apt/trusted.gpg.d/
 cp "$TMPDIR/microsoft-2025.asc.gpg" /usr/share/keyrings/microsoft-prod-2025.gpg
 
-cp "$TMPDIR/${FEED}.list" "/etc/apt/sources.list.d/microsoft-${FEED}.list"
+cp "$TMPDIR/${FEED}.list" "$SOURCE_LIST"
 echo "=== Configured PMC ${FEED} feed for Ubuntu ${VERSION_ID} ==="
